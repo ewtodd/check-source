@@ -19,7 +19,9 @@ comparing quantized checkpoints:
 * `doc_to_text`: `Question: {question}\nAnswer:`
 * `num_fewshot: 5`, sampled **without replacement** from the train split with
   `random.Random(seed).sample(train, 5)` (default seed `1234`, matching the
-  harness default)
+  harness default). lm-eval draws a fresh set for every evaluation document, in
+  dataset order, advancing that RNG once per document; this script replicates
+  that exactly, so each item gets the same demonstrations lm-eval would pick
 * `"\n\n"` few-shot delimiter, target delimiter `" "`
 * `until: ["Question:", "</s>", "<|im_end|>"]`
 * `strict-match`: first `#### (-?[0-9.,]+)` match

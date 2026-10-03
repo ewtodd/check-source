@@ -3,7 +3,8 @@
 This mirrors the lm-evaluation-harness `gsm8k` task closely enough to compare
 served checkpoints against each other and against published AMD/lm-eval numbers:
 the same `doc_to_text`, the same 5-shot sampling from the train split with the
-default seed 1234, the same "\n\n" delimiters, `until` sequences, and the
+default seed 1234 (a fresh draw per evaluation document, as lm-eval does), the
+same "\n\n" delimiters, `until` sequences, and the
 strict-match / flexible-extract filter pair. The non-thinking variant mirrors
 AMD's `gsm8k_nothink` custom task, which pre-closes an empty <think></think>
 block.
@@ -142,8 +143,16 @@ def main():
     args = parser.parse_args()
 
     train, test = load_split()
-    shots = random.Random(args.seed).sample(train, NUM_SHOTS)
     items = test[args.offset: args.offset + args.limit] if args.limit else test[args.offset:]
+
+    # lm-eval's ContextSampler draws a fresh 5-shot set for every evaluation
+    # document, in dataset order, advancing one shared Random(seed) instance
+    # (fewshot_random_seed, default 1234) once per document. Replicate that
+    # stream exactly so each item sees lm-eval's demonstrations.
+    fewshot_rnd = random.Random(args.seed)
+    for _ in range(args.offset):
+        fewshot_rnd.sample(train, NUM_SHOTS)
+    shots_by_item = [fewshot_rnd.sample(train, NUM_SHOTS) for _ in items]
     print("model=%s mode=%s items=%d seed=%d" % (args.model, args.mode, len(items), args.seed))
 
     generation = GENERATION[args.mode]
@@ -153,7 +162,7 @@ def main():
     done = [0]
 
     def run_one(indexed_item):
-        index, item = indexed_item
+        index, item, shots = indexed_item
         prompt = build_prompt(shots, item["question"], args.mode)
         payload = {"model": args.model, "prompt": prompt, "stop": UNTIL, "n": 1}
         payload.update(generation)
@@ -183,7 +192,8 @@ def main():
 
     with open(args.out + ".jsonl", "w") as handle:
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as pool:
-            futures = [pool.submit(run_one, (args.offset + i, item)) for i, item in enumerate(items)]
+            futures = [pool.submit(run_one, (args.offset + i, item, shots_by_item[i]))
+                       for i, item in enumerate(items)]
             for future in concurrent.futures.as_completed(futures):
                 row = future.result()
                 handle.write(json.dumps(row) + "\n")
