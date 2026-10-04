@@ -400,8 +400,18 @@ def minerva_score(gold_solution, gold_answer, candidate):
     except Exception:
         exact_match = 0
 
+    # math_verify's timeout uses signal.alarm, which raises in a worker thread;
+    # disable it (the runner is threaded) and let the parse itself fail safe.
     try:
-        math_verify = 1 if verify(gold=parse(gold_solution), target=parse(candidate)) else 0
+        math_verify = (
+            1
+            if verify(
+                gold=parse(gold_solution, parsing_timeout=None),
+                target=parse(candidate, parsing_timeout=None),
+                timeout_seconds=None,
+            )
+            else 0
+        )
     except Exception:
         math_verify = 0
 
