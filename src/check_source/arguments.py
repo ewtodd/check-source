@@ -12,6 +12,28 @@ def add_endpoint_arguments(parser):
     parser.add_argument("--limit", type=int, default=0, help="0 evaluates every item in the split")
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--out", required=True, help="summary JSON path; raw rows go to <out>.jsonl")
+    # Serving configuration is not introspectable over the API, so it is passed
+    # in and recorded with every result. On this stack the activation format and
+    # the KV dtype move accuracy independently of the stored weights, so a score
+    # without them is not comparable.
+    parser.add_argument("--weights", default=None, help="serving weight format, e.g. 'MXFP4 RTN'")
+    parser.add_argument(
+        "--activations", default=None, help="serving activation format, e.g. 'fp8 per-token (W4A8)'"
+    )
+    parser.add_argument("--kv-cache", default=None, help="KV-cache dtype, e.g. 'fp16' or 'fp8'")
+
+
+def serving_metadata(args):
+    return {
+        "weights": args.weights,
+        "activations": args.activations,
+        "kv_cache": args.kv_cache,
+    }
+
+
+def serving_label(args):
+    parts = [value for value in (args.weights, args.activations, args.kv_cache) if value]
+    return " / ".join(parts) if parts else "unlabeled"
 
 
 def add_reasoning_arguments(parser):

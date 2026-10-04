@@ -9,7 +9,13 @@ reasoning level, which is the protocol used to compare checkpoints.
 import random
 
 from . import scoring
-from .arguments import add_endpoint_arguments, add_reasoning_arguments, level_template_kwargs
+from .arguments import (
+    add_endpoint_arguments,
+    add_reasoning_arguments,
+    level_template_kwargs,
+    serving_label,
+    serving_metadata,
+)
 from .endpoint import Endpoint, chat_reply, completion_text
 from .runner import binomial_ci, mean, run, write_summary
 
@@ -134,11 +140,12 @@ def run_raw(args):
         "strict_match_ci95": binomial_ci(strict_score, len(rows)),
         "flexible_extract_ci95": binomial_ci(flex_score, len(rows)),
         "generation": generation,
+        "serving": serving_metadata(args),
     }
     write_summary(args.out, summary)
     print(
-        "RESULT gsm8k raw %s items=%d strict=%.4f flexible=%.4f"
-        % (args.mode, len(rows), strict_score, flex_score)
+        "RESULT gsm8k raw %s items=%d strict=%.4f flexible=%.4f serving=%s"
+        % (args.mode, len(rows), strict_score, flex_score, serving_label(args))
     )
 
 
@@ -207,11 +214,12 @@ def run_chat(args):
         ),
         "mean_reasoning_tokens": mean(row["reasoning_tokens"] for row in rows),
         "generation": dict(generation, chat_template_kwargs=template_kwargs),
+        "serving": serving_metadata(args),
     }
     write_summary(args.out, summary)
     print(
-        "RESULT gsm8k chat level=%s seed=%d items=%d strict=%.4f flexible=%.4f"
-        % (args.level, args.seed, len(rows), strict_score, flex_score)
+        "RESULT gsm8k chat level=%s seed=%d items=%d strict=%.4f flexible=%.4f serving=%s"
+        % (args.level, args.seed, len(rows), strict_score, flex_score, serving_label(args))
     )
 
 

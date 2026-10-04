@@ -88,6 +88,20 @@ checkpoint and AMD's model-card numbers (GSM8K 5-shot; 94.996% flexible /
 expected from sampler seeding and serving environment; the point of the bench is
 that every checkpoint is measured identically.
 
+## Results
+
+Published run files:
+[`ethantodd4l/check-source-results`](https://huggingface.co/datasets/ethantodd4l/check-source-results)
+(GSM8K for the Swift-1.5 quants, the chat-protocol grid for
+Qwen3.8-27B-PARO-int5, and an AIME smoke run).
+
+Every reported number must state its serving configuration -- **weight format,
+activation format and KV-cache dtype** -- because on this stack activation
+precision and KV dtype move accuracy independently of the stored weights. The
+benches accept `--weights`, `--activations` and `--kv-cache`; the values are
+recorded in the summary JSON and printed with the result, so a score is never
+detached from how it was served.
+
 ## Knoll bench
 
 `src/check_source/knoll.py` documents the intended item schema for the planned

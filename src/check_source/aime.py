@@ -7,7 +7,13 @@ Swift 1.5 quantization protocol this bench is meant to compare against.
 """
 
 from . import scoring
-from .arguments import add_endpoint_arguments, add_reasoning_arguments, level_template_kwargs
+from .arguments import (
+    add_endpoint_arguments,
+    add_reasoning_arguments,
+    level_template_kwargs,
+    serving_label,
+    serving_metadata,
+)
 from .endpoint import Endpoint, chat_reply
 from .runner import binomial_ci, mean, run, write_summary
 
@@ -114,16 +120,18 @@ def main(args):
         "mean_completion_tokens": mean(row["completion_tokens"] for row in rows),
         "mean_reasoning_tokens": mean(row["reasoning_tokens"] for row in rows),
         "generation": dict(generation, chat_template_kwargs=template_kwargs),
+        "serving": serving_metadata(args),
     }
     write_summary(args.out, summary)
     print(
-        "RESULT aime level=%s seed=%d items=%d accuracy=%.4f (%s)"
+        "RESULT aime level=%s seed=%d items=%d accuracy=%.4f (%s) serving=%s"
         % (
             args.level,
             args.seed,
             len(rows),
             overall,
             " ".join("%s=%.3f" % (year, score) for year, score in per_year.items()),
+            serving_label(args),
         )
     )
 
