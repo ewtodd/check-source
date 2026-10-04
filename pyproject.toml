@@ -1,0 +1,20 @@
+[build-system]
+requires = [ "setuptools" ]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "check-source"
+version = "0.1.0"
+description = "Reference benchmarks for OpenAI-compatible LLM endpoints"
+requires-python = ">=3.10"
+dependencies = [
+  "datasets",
+  "sympy",
+  "math-verify",
+]
+
+[project.scripts]
+check-source = "check_source.cli:main"
+
+[tool.setuptools.packages.find]
+where = [ "src" ]
