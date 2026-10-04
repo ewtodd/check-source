@@ -91,7 +91,7 @@ that every checkpoint is measured identically.
 ## Results
 
 Published run files:
-[`ethantodd4l/check-source-results`](https://huggingface.co/datasets/ethantodd4l/check-source-results)
+[`ethanwtodd/check-source-results`](https://huggingface.co/datasets/ethanwtodd/check-source-results)
 (GSM8K for the Swift-1.5 quants, the chat-protocol grid for
 Qwen3.8-27B-PARO-int5, and an AIME smoke run).
 
