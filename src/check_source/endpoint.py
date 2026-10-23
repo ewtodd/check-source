@@ -10,18 +10,18 @@ import urllib.request
 
 
 class Endpoint:
-    def __init__(self, base_url, timeout=3600, retries=5):
+    def __init__(self, base_url, timeout=3600, retries=5, api_key=None):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.retries = retries
+        self.api_key = api_key
 
     def post(self, path, payload):
         body = json.dumps(payload).encode()
-        request = urllib.request.Request(
-            self.base_url + path,
-            data=body,
-            headers={"Content-Type": "application/json"},
-        )
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = "Bearer " + self.api_key
+        request = urllib.request.Request(self.base_url + path, data=body, headers=headers)
         last_error = None
         for attempt in range(self.retries):
             try:
