@@ -2,11 +2,13 @@
 
 Working name: Knoll Bench, after Glenn F. Knoll's *Radiation Detection and Measurement*.
 
-Status: draft for review, 2026-10-03.
+Status: draft for review, 2026-10-03; revised 2026-10-23 (73mGe and archival data out of
+v1, session mining added as G0).
 Scope: spec, formats, source-mining and verification workflow. No implementation here.
 Context: extends the `gsm8k-eval` harness (same endpoint/client style) to a private
 benchmark for experimental physics data analysis, generated from already completed and
-verified analyses in UM-ANSG and, locally, the MUSIC repositories.
+verified analyses in UM-ANSG (YAP-PSD, 78mBr) and, locally, the MUSIC repositories, and
+prioritized by the work recorded in agent sessions.
 
 ---
 
@@ -119,32 +121,35 @@ result that cannot be normalized into this shape is not comparable and is discar
 | Verified analysis repos | UM-ANSG projects; MUSIC analyses (local only) | Primary task and gold source |
 | Shared infrastructure | `Analysis-Utilities`, `analysis-caen`, `musicsim`, `nds-mcp` | Coding tasks, gold computation, data access |
 | Committed outputs | `.result` tables, `.roofits`, ROOT files, PNG/PDF figures | Gold locators |
-| Publications | 73mGe, 78mBr, YAP-PSD papers | Highest-trust gold; also difficulty statements |
+| Publications | 78mBr, YAP-PSD papers | Highest-trust gold; also difficulty statements |
 | Datasets | `/labdata/ANSG/...`, private source files | Inputs; contamination-proof |
-| Agent run records | `workspace-soa/runs/...` | Task ideas and difficulty notes only; never gold |
+| Agent sessions | Claude Code and opencode sessions; son-of-anton runs later | Task mining (section 6.0); never gold |
 | Docs and method notes | `doc/pages/*.md`, Doxygen, README | Prompt specs, conventions |
 
 ### 3.2 Verified UM-ANSG inventory (inspected)
 
-- `73mGe` — position-sensitive CZT. Macros: `ConvertBEF.cpp`, `Filter.cpp`,
-  `PixelCalibration.cpp`, `CalibrationLow.cpp`, `AdditionalLevels.cpp`,
-  `CombineGeResult.cpp`, `ExportForAlex.cpp`, plus `include/BEF.hpp`, `src/BEF.cpp`.
-  Committed artifacts: `results/ge_amxfer.result`, `root_files/**`,
-  `plots/calibration_low_amxfer/fits/*.roofits`, `plots/pixel_calibration/**`.
-  Published final value: 68.7502 +/- 0.0142 keV (commit `c260617` records the result).
-- `YAP-PSD` — published NIMA paper. Macros: `InitialProcessing.cpp`, `Calibration.cpp`,
+v1 uses YAP-PSD and 78mBr from UM-ANSG, plus MUSIC (section 3.3).
+
+- `YAP-PSD` (production YAP) — published NIMA paper. Macros: `InitialProcessing.cpp`, `Calibration.cpp`,
   `ChargeComparison.cpp`, `ShapeIndicator.cpp`, `GateOptimization.cpp`, `NoiseRMS.cpp`,
   `AverageWaveforms.cpp`; Python: `analysis.py`, `psd_utils.py`, `regressors.py`,
   `torch_models.py`, `edge_study.py`, `noise_study.py`, `parameter_study.py`,
   `shuffle_study.py`, `proof_of_concept.py`; many committed plots.
 - `78mBr` — published Nuclear Physics A paper. Macros: `InitialProcessing.cpp`,
   `Calibration.cpp`, `HalfLife.cpp`, `MonteCarloEfficiency.cpp`.
-- `YAG-PreProcessing`, `ANSG-Archival` (EJ309B, SiDiode, BulkYAG, AuFoil, YAP),
-  `ANSG-WIP/YAP-QDA` (work in progress; excluded until it has committed results).
-- Unified flake with one dev shell per project
-  (`nix develop .#73mGe`, `.#78mBr`, `.#YAG-PreProcessing`, `.#YAP-PSD`), pinned to one
+- Unified flake with one dev shell per project (`nix develop .#78mBr`, `.#YAP-PSD`; the
+  flake also carries `.#73mGe` and `.#YAG-PreProcessing`), pinned to one
   `Analysis-Utilities` and one ROOT. This is the reproducibility substrate for
   `recomputed` gold.
+
+Excluded from v1:
+
+- `73mGe` — the analysis is still in active work, so its outputs are not final. Revisit
+  for a later version once the result is settled.
+- `ANSG-Archival` (EJ309B, SiDiode, BulkYAG, AuFoil, archival YAP) — only production YAP
+  is used.
+- `ANSG-WIP/YAP-QDA` — work in progress; excluded until it has committed results.
+- `YAG-PreProcessing` — not confirmed for v1.
 
 ### 3.3 Restricted sources
 
@@ -158,6 +163,8 @@ MUSIC repositories and `/labdata` are DOE/lab sensitive. Rules:
   resolved from a local env file. The resolved paths never enter the item file.
 - If a restricted item can be re-expressed on synthetic or published data with the same
   skill tested, that public variant is preferred for the shareable suite.
+- opencode and son-of-anton session records are private under the same rules, and are
+  additionally hidden from the remote assistant that operates the pipeline (section 6.0).
 
 ### 3.4 Data policy
 
@@ -259,10 +266,10 @@ directly; scorers read raw output plus the compiled items.
 
 ```toml
 schema_version = 1
-id = "ansg-73mge-cal-low-insitu-cu10-a"
-title = "Fit the 68.75 keV line in the Cu-shield in-situ spectrum"
+id = "ansg-78mbr-nuc-halflife-a"
+title = "Fit the 78mBr isomer half-life from the gated decay-time spectrum"
 klass = "reasoning"              # coding | reasoning | mixed
-domain = "CAL"
+domain = "NUC"
 type = "compute"                 # compute | interpret | implement | script | debug | pipeline
 horizon = "single_turn"
 est_runtime_s = 120
@@ -270,76 +277,61 @@ difficulty = 3                   # initial estimate 1-5, replaced by calibration
 sensitivity = "internal"         # public | internal | restricted
 publishable = true
 
+# <...> fields are filled from the Phase 0 inventory; this example is schematic.
 [source]
 repo = "UM-ANSG"
-commit = "9fc4510"
+commit = "<pinned>"
 paths = [
-  "73mGe/macros/CalibrationLow.cpp",
-  "73mGe/root_files/calibrated_low_amxfer/CuShieldSignal_10Percent_20260113.root",
+  "78mBr/macros/HalfLife.cpp",
+  "78mBr/<decay-time ROOT file that HalfLife.cpp reads>",
 ]
 
 [[inputs]]
-path = "work/CuShieldSignal_10Percent_20260113.root"
-from = "${UM_ANSG}/73mGe/root_files/calibrated_low_amxfer/CuShieldSignal_10Percent_20260113.root"
+path = "work/decay_time.root"
+from = "${UM_ANSG}/78mBr/<decay-time ROOT file that HalfLife.cpp reads>"
 sha256 = "<filled by builder>"
-tree = ""
+tree = "<tree>"
 branches = []
 
 [env]
-nix_develop = "UM-ANSG#73mGe"
+nix_develop = "UM-ANSG#78mBr"
 network = false
 timeout_s = 900
 
 prompt = '''
-The mounted file work/CuShieldSignal_10Percent_20260113.root is a calibrated
-CZT spectrum from the UM-ANSG 73mGe campaign (Cu shield, 10% setting, 2026-01-13).
-The 68.75 keV isomeric line is the only structure in the fit window
-60-78 keV; the background is linear.
+The mounted file work/decay_time.root holds <the gated decay-time spectrum that
+HalfLife.cpp fits: energy gate, time binning and time units>.
 
-Fit the line with a Gaussian plus a linear background over 60-78 keV and report,
-one per line, `key = value` in RESULTS.txt:
+Fit it with <HalfLife.cpp's decay model, e.g. one exponential plus a constant
+background> over <the fit window> and report, one per line, `key = value` in
+RESULTS.txt:
 
-- line_centroid_keV: centroid of the Gaussian, in keV
-- line_sigma_keV: Gaussian sigma, in keV
-- line_area: fitted net peak area, in counts
+- half_life_us: fitted half-life, in microseconds
 - chi2_per_ndf: chi2 divided by the number of degrees of freedom
 '''
 
 [output]
 contract = "results_txt"
 extraction = "results_txt_v1"
-keys = ["line_centroid_keV", "line_sigma_keV", "line_area", "chi2_per_ndf"]
+keys = ["half_life_us", "chi2_per_ndf"]
 
 [[checks]]
-id = "centroid"
-key = "line_centroid_keV"
+id = "half-life"
+key = "half_life_us"
 type = "numeric"
 expected = "<resolved at build>"
-units = "keV"
+units = "us"
 required = true
 
 [checks.tol]
-abs = 0.05
+rel = 0.01                       # placeholder; set from the fit's statistical uncertainty
 
 [checks.gold_ref]
-kind = "committed_result"
+kind = "recomputed"
 repo = "UM-ANSG"
-commit = "9fc4510"
-file = "73mGe/results/ge_amxfer.result"
-locator = 'label="Cu_Shield_Signal_10%_(01/13)" column=ge_mu'
-
-[[checks]]
-id = "sigma"
-key = "line_sigma_keV"
-type = "range"
-lo = 0.1
-hi = 5.0
-units = "keV"
-required = true
-
-[checks.gold_ref]
-kind = "manual"
-note = "order-of-magnitude sanity bound; fit parameter depends on background choice"
+commit = "<pinned>"
+script = "78mBr/macros/HalfLife.cpp"
+locator = "<regex over the macro's fit printout>"
 
 [[checks]]
 id = "chi2"
@@ -366,6 +358,7 @@ machine = []
 [generation]
 method = "g1_verified_analysis"
 generator_model = "local"
+candidate = "<opaque hash of the G0 candidate that queued this unit, if any>"
 generated_at = "2026-10-03"
 seed = 20261003
 notes = ""
@@ -449,14 +442,15 @@ and re-reviewed.
 
 ```json
 {
-  "item_id": "ansg-73mge-cal-low-insitu-cu10-a",
+  "item_id": "ansg-78mbr-nuc-halflife-a",
   "item_hash": "sha256:...",
   "run_id": "...",
   "raw_output": "...",
   "reasoning": "...",
-  "extracted": {"line_centroid_keV": 68.7514},
-  "checks": [{"id": "centroid", "pass": true, "expected": 68.75145, "got": 68.7514}],
-  "item_score": 0.75,
+  "extracted": {"half_life_us": 1.02, "chi2_per_ndf": 3.1},
+  "checks": [{"id": "half-life", "pass": true, "expected": 1.0, "got": 1.02},
+             {"id": "chi2", "pass": false, "lo": 0.5, "hi": 2.5, "got": 3.1}],
+  "item_score": 0.5,
   "item_pass": false,
   "error": null,
   "timing_s": 41.2,
@@ -464,6 +458,8 @@ and re-reviewed.
   "finish_reason": "stop"
 }
 ```
+
+(Values illustrative.)
 
 `summary.json`: per-domain and per-klass counts, mean partial score with bootstrap CI
 over items, pass rate with binomial CI, and a list of excluded/error rows.
@@ -478,12 +474,71 @@ version. Any run that does not record the item-set hash is not comparable.
 
 ## 6. Generation methods
 
+### 6.0 G0 — Task mining from agent sessions
+
+Sessions record what work is actually done. They decide which analysis units and
+commits G1 and G2 turn into items, and how tasks are framed. They never supply gold,
+inputs or expected values.
+
+| Source | Location | Content readable by |
+|---|---|---|
+| Claude Code | `~/.claude/projects/*/*.jsonl` | local models and the remote assistant |
+| opencode | `~/.local/share/opencode/opencode.db` (SQLite; `session`, `message`, `part`, `session_message`) | local models only |
+| son-of-anton | `~/.son-of-anton` | local models only; deferred |
+
+Scope filter: keep sessions whose work lands in YAP-PSD, 78mBr, MUSIC or the shared
+infrastructure (section 3.1); drop 73mGe and `ANSG-Archival`. Fleet configuration
+(`/etc/nixos`) and son-of-anton development sessions are out of scope: the bench
+measures physics analysis work, not systems work. The filter runs locally and reports
+only counts.
+
+Stages:
+
+1. **Digest** (script, no model): per session, the working directory and repo, time span,
+   user requests, files read and written, shell and git commands, commits made, turn,
+   tool-call and error counts.
+2. **Classify** (local model): in scope or not, project, domain and task type (section 4),
+   a short task statement, outcome (done, partial, abandoned) and difficulty signals
+   (rework, user corrections). Sessions longer than the model's window are chunked.
+3. **Link** (script): map each candidate to commits in the touched repo within the
+   session's time span. A candidate with no commit or committed output stays an `idea`.
+4. **Cluster and rank** (local model, then script): merge duplicates across sessions; rank
+   by how often and how recently the kind of work recurs.
+5. **Hand off**: ranked candidates become the unit queue for G1 and the commit queue
+   for G2.
+
+Blind operation. The remote assistant writes and runs the pipeline but does not see
+blind content:
+
+- Every stage runs through a wrapper that writes stdout and stderr to a private log
+  under `${KNOLL_PRIVATE}` (default `~/knoll-private`, outside every git repository) and
+  prints only a whitelisted summary: counts, histograms over fixed enums, gate
+  pass/fail, exception type and line in pipeline code, and opaque hashes. Never paths,
+  titles, prompts, content-derived IDs or values.
+- The extractor is developed on Claude Code sessions, where the assistant may look, and
+  then runs unchanged on opencode.
+- Items built from blind candidates are blind as well; the human reviews them
+  (section 7.3).
+
+Model routing:
+
+- Only LAN-served models (`unholy/*`, `radiance/*`, `gufo/*` behind maitred) may read
+  blind content. The hosted `deepseek/*` route and the `auto` alias are never used;
+  model names are pinned.
+- The pipeline has its own maitred virtual key whose `models` allowlist holds only the
+  local models, so a misrouted call fails at the gateway instead of leaving the LAN.
+- The generator and the reviewer are different models (section 7.3), and a model family
+  under test does not generate the items it is scored on. Proposed: DeepSeek-V4-Flash
+  (`unholy/dsv4-flash`) generates; Qwen3.8-27B (`radiance/qwen3.8-27b`) runs Pass 3.
+- G0's classify stage uses Qwen3.8-27B. Tagging sessions is not writing items, so the
+  self-preference concern above does not apply to it.
+
 ### 6.1 G1 — Extraction from verified analyses (primary)
 
 Input: an analysis unit = a script/macro plus inputs, committed outputs and, where
 available, a paper or method note. A unit is eligible only if it is completed (no
-WIP-marked code, e.g. `AdditionalLevels.cpp`'s "NOT A RESULT YET" note excludes it) and
-its outputs are committed.
+WIP-marked code) and its outputs are committed. An analysis still in active work is
+excluded as a whole, which is why 73mGe is out of v1.
 
 Steps for each unit:
 
@@ -509,22 +564,18 @@ Steps for each unit:
 7. **Review** (section 7.3).
 8. **Freeze** with provenance and state transitions.
 
-Worked mapping for UM-ANSG v1 candidates:
+Worked mapping for v1 candidates:
 
-- Pixel calibration (`PixelCalibration.cpp`) -> CAL coding items.
-- Transfer calibration (`CalibrationLow.cpp` + `calibration_function_low_*.root`) ->
-  CAL `script` items; gold from the calibration function objects and
-  `ge_amxfer.result`.
-- Combination and uncertainty budget (`CombineGeResult.cpp` + `ge_amxfer.result` +
-  published value) -> STAT `compute` items; gold `derived` and `published`.
-- Filtering/conversion (`Filter.cpp`, `ConvertBEF.cpp`) -> DAQ `implement` items.
+- YAP processing and calibration (`InitialProcessing.cpp`, `Calibration.cpp`) -> DAQ
+  and CAL `implement`/`script` items.
 - PSD macros and studies (`ChargeComparison.cpp`, `GateOptimization.cpp`,
   `ShapeIndicator.cpp`, Python studies) -> PSD `implement`/`interpret` items; gold from
   committed plots' underlying values where the plot is generated from a saved table,
   otherwise `recomputed` via the pinned shell.
 - Half-life and Monte Carlo efficiency (78mBr) -> NUC/SIM `compute` items; gold
   `published` plus `recomputed`.
-- YAG preprocessing -> DAQ `script` items.
+- MUSIC analyses -> mapped during the Phase 0 inventory; every item is
+  `sensitivity: restricted`.
 
 ### 6.2 G2 — Code history (SWE-style)
 
@@ -785,7 +836,9 @@ Adapter contract:
 
 Phase 0 — Inventory and schema.
 Local model produces `inventory/um-ansg.inventory.toml` and a local MUSIC inventory
-using the Appendix B contract. Finalize `schema/*.json` and the item/check examples.
+using the Appendix B contract, and G0 produces the ranked candidate queue from sessions
+(built on Claude Code sessions first, then run blind on opencode). Finalize
+`schema/*.json` and the item/check examples.
 
 Phase 1 — Builder and Runner A plus a pilot.
 Implement `build.py`, `validate.py`, `runner_a.py`, `scorer.py`, `compare.py`, the
@@ -827,11 +880,10 @@ builder replaces `"<resolved at build>"` with the value extracted through `gold_
 
 ### A.1 Real-data reasoning/compute item (abridged)
 
-See section 5.2. Provenance chain for the centroid check:
-`UM-ANSG@9fc4510:73mGe/results/ge_amxfer.result`, row
-`Cu_Shield_Signal_10%_(01/13)`, column `ge_mu`; published counterpart in the 73mGe
-paper. The prompt is generated from the method spec, never copied from the result file,
-and the result file is not mounted.
+See section 5.2. Provenance chain for the half-life check: `HalfLife.cpp` rerun at the
+pinned UM-ANSG commit in the `.#78mBr` shell, value taken from its fit printout;
+published counterpart in the 78mBr paper. The prompt is generated from the method spec,
+never copied from the macro's output, and no answer-bearing file is mounted.
 
 ### A.2 Coding item from Analysis-Utilities (abridged)
 
