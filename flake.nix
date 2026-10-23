@@ -59,7 +59,7 @@
         in
         {
           default = pkgs.mkShell {
-            packages = [ (pkgs.python3.withPackages (mathDeps pkgs)) ];
+            packages = [ (pkgs.python3.withPackages (_: mathDeps pkgs)) ];
           };
         }
       );
