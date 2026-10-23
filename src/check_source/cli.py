@@ -2,7 +2,7 @@
 
 import argparse
 
-from . import aime, gsm8k, knoll, math500
+from . import aime, gsm8k, knoll, math500, mining
 
 
 def build_parser():
@@ -15,6 +15,7 @@ def build_parser():
     aime.register(subparsers)
     math500.register(subparsers)
     knoll.register(subparsers)
+    mining.register(subparsers)
     return parser
 
 
