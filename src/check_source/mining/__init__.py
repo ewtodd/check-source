@@ -1,7 +1,7 @@
 """Knoll bench task mining from agent sessions (knoll-bench-plan.md section
 6.0). Every stage runs through `blind.run`."""
 
-from . import blind, classify, digest, llm
+from . import blind, classify, digest, link, llm, rank
 
 
 def register(subparsers):
@@ -20,6 +20,20 @@ def register(subparsers):
     stage.add_argument("--fresh", action="store_true", help="discard earlier results instead of resuming")
     stage.add_argument("--concurrency", type=int, default=3)
     stage.set_defaults(func=run_classify)
+    stage = stages.add_parser("link", help="stage 3: tie benchmarkable tasks to repositories and verified commits")
+    stage.add_argument("--source", choices=sorted(digest.SOURCES), required=True)
+    stage.set_defaults(func=run_link)
+    stage = stages.add_parser("rank", help="stage 4: merge near-duplicate tasks and rank the clusters")
+    stage.add_argument("--scope", choices=sorted(digest.SOURCES) + [rank.ALL], default=rank.ALL)
+    stage.set_defaults(func=run_rank)
+
+
+def run_link(args):
+    raise SystemExit(blind.run("link-%s" % args.source, link.run_stage, link.VOCAB, source=args.source))
+
+
+def run_rank(args):
+    raise SystemExit(blind.run("rank-%s" % args.scope, rank.run_stage, rank.VOCAB, scope=args.scope))
 
 
 def run_classify(args):

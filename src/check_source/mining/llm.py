@@ -39,3 +39,8 @@ class Model:
         reply = chat_reply(response)
         reply["prompt_tokens"] = (response.get("usage") or {}).get("prompt_tokens")
         return reply
+
+    def embed(self, texts):
+        """One vector per text, in order."""
+        response = self.endpoint.post("/v1/embeddings", {"model": self.name, "input": list(texts)})
+        return [item["embedding"] for item in sorted(response["data"], key=lambda item: item["index"])]
