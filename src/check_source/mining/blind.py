@@ -14,6 +14,7 @@ import json
 import os
 import pathlib
 import re
+import sys
 import traceback
 
 PACKAGE_DIR = pathlib.Path(__file__).resolve().parent
@@ -91,12 +92,27 @@ def run(stage, func, vocab, **kwargs):
     log_path = logs / ("%s-%s.log" % (stage, stamp))
     failure = None
     summary = None
-    with open(log_path, "w") as log, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved = os.dup(1), os.dup(2)
+    with open(log_path, "w") as log:
+        # File descriptors too, not just sys.stdout: a subprocess (git) or C
+        # code writes to fd 1 and 2 directly and would bypass contextlib.
+        os.dup2(log.fileno(), 1)
+        os.dup2(log.fileno(), 2)
         try:
-            summary = func(root, **kwargs)
-        except BaseException as error:  # noqa: BLE001 - Ctrl-C and SystemExit are reported the same way
-            traceback.print_exc()
-            failure = describe(error)
+            with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+                try:
+                    summary = func(root, **kwargs)
+                except BaseException as error:  # noqa: BLE001 - Ctrl-C and SystemExit are reported the same way
+                    traceback.print_exc()
+                    failure = describe(error)
+        finally:
+            log.flush()
+            os.dup2(saved[0], 1)
+            os.dup2(saved[1], 2)
+            os.close(saved[0])
+            os.close(saved[1])
     print("stage %s, private log %s" % (stage, log_path.name))
     if failure:
         print("FAILED: %s" % failure)
