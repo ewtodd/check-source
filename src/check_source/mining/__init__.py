@@ -38,6 +38,7 @@ def register(subparsers):
     stage.add_argument("--limit", type=int, default=0, help="draft at most this many items (0: all)")
     stage.add_argument("--concurrency", type=int, default=4)
     stage.add_argument("--retry-failed", action="store_true", help="keep finished drafts; redo only failed units")
+    stage.add_argument("--effort", choices=["low", "high"], default="high", help="reasoning effort of the first attempt")
     stage.set_defaults(func=run_draft)
     stage = stages.add_parser("build", help="resolve gold by running reference code in a sandbox; compile items")
     stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
@@ -74,6 +75,7 @@ def run_draft(args):
             limit=args.limit,
             concurrency=args.concurrency,
             retry_failed=args.retry_failed,
+            effort=args.effort,
         )
     )
 

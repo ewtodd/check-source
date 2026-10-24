@@ -357,8 +357,9 @@ def count(table, key, amount=1):
     table[key] = table.get(key, 0) + amount
 
 
-def run_stage(private, set_name, model_name=MODEL, limit=0, concurrency=4, retry_failed=False):
+def run_stage(private, set_name, model_name=MODEL, limit=0, concurrency=4, retry_failed=False, effort="high"):
     model = llm.Model(model_name, timeout=TIMEOUT_S, retries=1)
+    first = dict(GENERATION, reasoning_effort=effort)
     jobs = um_ansg_jobs(private) if set_name == "um_ansg" else g0_jobs(private)
     if limit:
         jobs = jobs[:limit]
@@ -394,7 +395,7 @@ def run_stage(private, set_name, model_name=MODEL, limit=0, concurrency=4, retry
         row = {key: job[key] for key in ("set", "project", "repo", "commit", "unit", "method")}
         row.update(prompt_tokens=0, completion_tokens=0)
         text, error = "", "truncated"
-        for generation in (GENERATION, FALLBACK):
+        for generation in (first, FALLBACK):
             try:
                 reply = model.ask(prompt, generation)
             except RuntimeError:

@@ -41,6 +41,7 @@ RUN_TIMEOUT_S = 4 * 3600
 MIN_FREE_BYTES = 20 * 10**9
 NUMBER = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 FAILURES = [
+    "no_dev_shell",
     "not_run",
     "run_failed",
     "timeout",
@@ -61,6 +62,7 @@ VOCAB = frozenset(
         "built",
         "unresolved",
         "leak_suspected",
+        "held_for_review",
         "runs_planned",
         "runs_cached",
         "runs_made",
@@ -71,6 +73,35 @@ VOCAB = frozenset(
         "inputs_hashed",
     ]
 )
+
+
+SHELL_CACHE = {}
+
+
+def dev_shell(repo, commit, project, wanted):
+    """The dev shell to run a reference in: the UM-ANSG project's own, else
+    the item's named shell if the flake has it, else `default`, else the
+    first; None if the flake defines none."""
+    if project in SHELLS:
+        return SHELLS[project]
+    key = (str(repo), commit)
+    if key not in SHELL_CACHE:
+        done = subprocess.run(
+            ["nix", "eval", "--json", "git+file://%s?rev=%s#devShells.x86_64-linux" % (repo, commit),
+             "--apply", "builtins.attrNames"],
+            capture_output=True, text=True, timeout=600,
+        )  # fmt: skip
+        try:
+            SHELL_CACHE[key] = json.loads(done.stdout) if done.returncode == 0 else []
+        except ValueError:
+            SHELL_CACHE[key] = []
+    shells = SHELL_CACHE[key]
+    name = str(wanted or "").rpartition("#")[2]
+    if name in shells:
+        return name
+    if "default" in shells:
+        return "default"
+    return shells[0] if shells else None
 
 
 def run_key(repo, commit, workdir, command):
@@ -114,6 +145,9 @@ def reference_run(private, repo, commit, prefix, shell, workdir, command):
         # nix develop points TMPDIR at a directory on the host's /tmp, which
         # the sandbox's fresh /tmp lacks; ACLiC and cling need it.
         "--setenv", "TMPDIR", "/tmp",
+        # stdout is a file here, so Python would block-buffer it and lose
+        # printed results to a crash at exit (PyROOT with torch does this).
+        "--setenv", "PYTHONUNBUFFERED", "1",
         *mounts,
         "--unshare-net",
         "--die-with-parent",
@@ -226,6 +260,7 @@ def run_stage(private, set_name, allow_run=False):
         "built": 0,
         "unresolved": {},
         "leak_suspected": 0,
+        "held_for_review": 0,
         "runs_planned": 0,
         "runs_cached": 0,
         "runs_made": 0,
@@ -235,14 +270,17 @@ def run_stage(private, set_name, allow_run=False):
     }
     planned = set()
     built = []
+    review = []
     for row in rows:
         text = (draft_dir / ("%s.toml" % row["id"])).read_text()
         item = tomllib.loads(text)
         repo = pathlib.Path(row["repo"])
         prefix = PROJECT_DIRS.get(row["project"], "")
-        shell = SHELLS.get(row["project"], "default")
-        gold, failure = {}, None
-        for check in item.get("checks") or []:
+        shell = dev_shell(repo, row["commit"], row["project"], (item.get("env") or {}).get("nix_develop"))
+        gold, failure = {}, ("no_dev_shell" if shell is None else None)
+        crashed = {}  # check id -> (exit status, value) from a run that crashed after printing
+        checks = (item.get("checks") or []) if shell else []
+        for check in checks:
             ref = check.get("gold_ref") or {}
             if ref.get("kind") == "published":
                 failure = failure or "published_pending"
@@ -266,6 +304,11 @@ def run_stage(private, set_name, allow_run=False):
             if status != "0":
                 count(summary["run_status"], "failed" if status != "timeout" else "timeout")
                 failure = failure or ("timeout" if status == "timeout" else "run_failed")
+                if status not in ("timeout", "no_space") and log.exists():
+                    try:
+                        crashed[check["id"]] = (status, locate(ref.get("locator", ""), log.read_text(errors="replace")))
+                    except Unresolved:
+                        pass
                 continue
             count(summary["run_status"], "ok")
             try:
@@ -283,6 +326,19 @@ def run_stage(private, set_name, allow_run=False):
             summary["inputs_hashed"] += 1
         if failure:
             count(summary["unresolved"], failure)
+            # Every gold value found, but some only in a run that exited
+            # non-zero: held for a human, never machine-verified.
+            checks_with_gold = [c for c in checks if (c.get("gold_ref") or {}).get("kind") == "recomputed"]
+            if failure == "run_failed" and crashed and all(c["id"] in gold or c["id"] in crashed for c in checks_with_gold):
+                review.append(
+                    {
+                        "id": item["id"],
+                        "reason": "reference exited non-zero after printing its gold",
+                        "exit_status": sorted({status for status, _ in crashed.values()}),
+                        "gold": {**gold, **{key: value for key, (_, value) in crashed.items()}},
+                    }
+                )
+                summary["held_for_review"] += 1
             continue
         # A gold value the prompt already states is either a leak or a locator
         # that selected the wrong number; either way the item is held back
@@ -315,5 +371,6 @@ def run_stage(private, set_name, allow_run=False):
         "items_jsonl_sha256": hashlib.sha256("\n".join(lines).encode()).hexdigest(),
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1, sort_keys=True))
+    (out_dir / "review.jsonl").write_text("".join(json.dumps(entry, sort_keys=True) + "\n" for entry in review))
     summary["built"] = len(built)
     return summary

@@ -77,12 +77,19 @@ def run_stage(private, set_name, model_name=MODEL):
             if ref.get("kind") != "recomputed" or not str(ref.get("locator", "")).startswith("regex: "):
                 continue
             workdir, command = ref.get("workdir") or ".", ref.get("command") or ""
+            # Prefer a clean run; a run that crashed after printing (PyROOT at
+            # exit) still shows what the reference prints.
             log = None
-            for candidate in filter(None, [command, build.compiled(command)]):
-                run_dir = private / "build" / "runs" / build.run_key(repo, row["commit"], workdir, candidate)
-                status = run_dir / "exit_status"
-                if status.exists() and status.read_text().strip() == "0":
-                    log = run_dir / "stdout.log"
+            for want_clean in (True, False):
+                for candidate in filter(None, [command, build.compiled(command)]):
+                    run_dir = private / "build" / "runs" / build.run_key(repo, row["commit"], workdir, candidate)
+                    status = run_dir / "exit_status"
+                    if not status.exists() or not (run_dir / "stdout.log").exists():
+                        continue
+                    if (status.read_text().strip() == "0") == want_clean:
+                        log = run_dir / "stdout.log"
+                        break
+                if log:
                     break
             if log is None:
                 outcome = "no_run"
