@@ -29,10 +29,12 @@ from .inventory import UM_ANSG, UM_ANSG_PROJECTS
 from .link import git
 
 MODEL = "unholy/dsv4-flash"
-# High effort can think past 32k tokens and leave no answer; a cut-off or empty
-# answer is retried once at low effort.
+# High effort can think past 32k tokens and leave no answer, and on large units
+# past an hour; a cut-off, empty or timed-out answer is retried once at low
+# effort.
 GENERATION = {"max_tokens": 100000, "temperature": 0.3, "reasoning_effort": "high"}
 FALLBACK = dict(GENERATION, reasoning_effort="low")
+TIMEOUT_S = 3 * 3600
 SETS = ["um_ansg", "g0"]
 G0_TOP = 40
 CONTEXT_CHARS = 200000
@@ -355,17 +357,24 @@ def count(table, key, amount=1):
     table[key] = table.get(key, 0) + amount
 
 
-def run_stage(private, set_name, model_name=MODEL, limit=0, concurrency=4):
-    model = llm.Model(model_name)
+def run_stage(private, set_name, model_name=MODEL, limit=0, concurrency=4, retry_failed=False):
+    model = llm.Model(model_name, timeout=TIMEOUT_S, retries=1)
     jobs = um_ansg_jobs(private) if set_name == "um_ansg" else g0_jobs(private)
     if limit:
         jobs = jobs[:limit]
     out_dir = private / "items" / "draft" / set_name
     out_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    for stale in list(out_dir.glob("*.toml")) + [out_dir / "index.jsonl"]:
-        stale.unlink(missing_ok=True)
-    lock = threading.Lock()
+    index = out_dir / "index.jsonl"
     rows = []
+    if retry_failed and index.exists():
+        with open(index) as handle:
+            rows = [row for row in map(json.loads, handle) if row["state"] != "failed"]
+        finished = {row["unit"] for row in rows}
+        jobs = [job for job in jobs if job["unit"] not in finished]
+    else:
+        for stale in list(out_dir.glob("*.toml")) + [index]:
+            stale.unlink(missing_ok=True)
+    lock = threading.Lock()
 
     def work(job):
         project = job["project"]
@@ -384,22 +393,25 @@ def run_stage(private, set_name, model_name=MODEL, limit=0, concurrency=4):
         )
         row = {key: job[key] for key in ("set", "project", "repo", "commit", "unit", "method")}
         row.update(prompt_tokens=0, completion_tokens=0)
-        text = ""
+        text, error = "", "truncated"
         for generation in (GENERATION, FALLBACK):
             try:
                 reply = model.ask(prompt, generation)
             except RuntimeError:
                 traceback.print_exc()
-                row.update(state="failed", error="http")
-                return row
+                error = "http"
+                continue
             row["prompt_tokens"] += reply["prompt_tokens"] or 0
             row["completion_tokens"] += reply["completion_tokens"] or 0
             text = strip_fences(reply["text"])
             if reply["finish_reason"] != "length" and text:
                 break
+            error = "truncated"
         else:
-            row.update(state="failed", error="truncated")
+            row.update(state="failed", error=error)
             return row
+        # The pinned commit is ours, not the model's to copy.
+        text = re.sub(r'(?m)^commit = "[^"]*"', 'commit = "%s"' % job["commit"], text, count=1)
         try:
             item = tomllib.loads(text)
         except tomllib.TOMLDecodeError:
@@ -447,7 +459,7 @@ def run_stage(private, set_name, model_name=MODEL, limit=0, concurrency=4):
     summary = {
         "set": set_name,
         "model": model_name,
-        "jobs": len(jobs),
+        "jobs": len(rows),
         "state": {},
         "gate_failed": {},
         "domain": {},

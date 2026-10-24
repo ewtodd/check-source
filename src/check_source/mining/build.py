@@ -25,6 +25,7 @@ import hashlib
 import json
 import pathlib
 import re
+import shutil
 import subprocess
 import tomllib
 
@@ -35,6 +36,9 @@ from .validate import UNRESOLVED
 SHELLS = {"yap_psd": "YAP-PSD", "78mbr": "78mBr"}
 PROJECT_DIRS = {"yap_psd": "YAP-PSD", "78mbr": "78mBr"}
 RUN_TIMEOUT_S = 4 * 3600
+# Reference runs write processed files into their overlays; stop well before
+# the private volume fills.
+MIN_FREE_BYTES = 20 * 10**9
 NUMBER = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
 FAILURES = [
     "not_run",
@@ -81,6 +85,8 @@ def reference_run(private, repo, commit, prefix, shell, workdir, command):
     status_file = run_dir / "exit_status"
     if status_file.exists():
         return status_file.read_text().strip(), log
+    if shutil.disk_usage(private).free < MIN_FREE_BYTES:
+        return "no_space", log
     src, home = run_dir / "src", run_dir / "home"
     for directory in (src, home, run_dir / "upper", run_dir / "work"):
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -105,6 +111,9 @@ def reference_run(private, repo, commit, prefix, shell, workdir, command):
         "--bind", str(src), str(src),
         "--bind", str(home), str(home),
         "--setenv", "HOME", str(home),
+        # nix develop points TMPDIR at a directory on the host's /tmp, which
+        # the sandbox's fresh /tmp lacks; ACLiC and cling need it.
+        "--setenv", "TMPDIR", "/tmp",
         *mounts,
         "--unshare-net",
         "--die-with-parent",
@@ -128,6 +137,29 @@ def reference_run(private, repo, commit, prefix, shell, workdir, command):
             status = "timeout"
     status_file.write_text(status)
     return status, log
+
+
+JIT_FAILURE = "Failed to materialize symbols"
+INTERPRETED_MACRO = re.compile(r"(\broot\b[^'\"]*?\s)(['\"]?)([\w./-]+\.(?:cpp|C|cxx))\2(?=\s|$)")
+
+
+def compiled(command):
+    """The command with its ROOT macro compiled by ACLiC (`macro.cpp+`), or
+    None if it names no interpreted macro."""
+    if not INTERPRETED_MACRO.search(command):
+        return None
+    return INTERPRETED_MACRO.sub(lambda m: "%s'%s+'" % (m.group(1), m.group(3)), command, count=1)
+
+
+def run_reference(private, repo, commit, prefix, shell, workdir, command):
+    """reference_run, retried with the macro compiled when cling cannot JIT it
+    (threads and std::async need ACLiC). Returns (status, log, command used)."""
+    status, log = reference_run(private, repo, commit, prefix, shell, workdir, command)
+    alternative = compiled(command)
+    if status not in ("0", "no_space") and alternative and log.exists() and JIT_FAILURE in log.read_text(errors="replace"):
+        status, log = reference_run(private, repo, commit, prefix, shell, workdir, alternative)
+        return status, log, alternative
+    return status, log, command
 
 
 def locate(locator, stdout):
@@ -229,7 +261,8 @@ def run_stage(private, set_name, allow_run=False):
                 continue
             if not done:
                 summary["runs_made"] += 1
-            status, log = reference_run(private, repo, row["commit"], prefix, shell, workdir, command)
+            status, log, used = run_reference(private, repo, row["commit"], prefix, shell, workdir, command)
+            ref["command"] = used
             if status != "0":
                 count(summary["run_status"], "failed" if status != "timeout" else "timeout")
                 failure = failure or ("timeout" if status == "timeout" else "run_failed")
@@ -251,12 +284,16 @@ def run_stage(private, set_name, allow_run=False):
         if failure:
             count(summary["unresolved"], failure)
             continue
+        # A gold value the prompt already states is either a leak or a locator
+        # that selected the wrong number; either way the item is held back
+        # (plan section 7.2), not built.
+        if any(leaked(value, item.get("prompt", ""), check) for check in item.get("checks") or []
+               for value in [gold.get(check.get("id"))] if value is not None):
+            summary["leak_suspected"] += 1
+            continue
         for check in item.get("checks") or []:
             if check.get("expected") == UNRESOLVED and check["id"] in gold:
                 check["expected"] = gold[check["id"]]
-                if leaked(gold[check["id"]], item.get("prompt", ""), check):
-                    item.setdefault("generation", {}).setdefault("needs_human", []).append("gold value appears in prompt")
-                    summary["leak_suspected"] += 1
         item.setdefault("verification", {})["state"] = "machine_verified"
         canonical = json.dumps(item, sort_keys=True)
         built.append(

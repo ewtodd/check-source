@@ -1,7 +1,7 @@
 """Knoll bench task mining from agent sessions (knoll-bench-plan.md section
 6.0). Every stage runs through `blind.run`."""
 
-from . import blind, build, classify, digest, draft, inventory, link, llm, rank
+from . import blind, build, classify, digest, draft, inventory, link, llm, rank, repair
 
 
 def register(subparsers):
@@ -37,6 +37,7 @@ def register(subparsers):
     stage.add_argument("--model", choices=sorted(llm.LOCAL_MODELS), default=draft.MODEL)
     stage.add_argument("--limit", type=int, default=0, help="draft at most this many items (0: all)")
     stage.add_argument("--concurrency", type=int, default=4)
+    stage.add_argument("--retry-failed", action="store_true", help="keep finished drafts; redo only failed units")
     stage.set_defaults(func=run_draft)
     stage = stages.add_parser("build", help="resolve gold by running reference code in a sandbox; compile items")
     stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
@@ -44,6 +45,16 @@ def register(subparsers):
         "--allow-run", action="store_true", help="run reference code (sandboxed); without it, only plan the runs"
     )
     stage.set_defaults(func=run_build)
+    stage = stages.add_parser("repair", help="rewrite locators that miss their reference output, verified on it")
+    stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
+    stage.add_argument("--model", choices=sorted(llm.LOCAL_MODELS), default=repair.MODEL)
+    stage.set_defaults(func=run_repair)
+
+
+def run_repair(args):
+    raise SystemExit(
+        blind.run("repair-%s" % args.set_name, repair.run_stage, repair.VOCAB, set_name=args.set_name, model_name=args.model)
+    )
 
 
 def run_build(args):
@@ -62,6 +73,7 @@ def run_draft(args):
             model_name=args.model,
             limit=args.limit,
             concurrency=args.concurrency,
+            retry_failed=args.retry_failed,
         )
     )
 
