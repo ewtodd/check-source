@@ -7,6 +7,8 @@ send session content toward a hosted model. The gateway address and key file
 are deliberately not configurable.
 """
 
+import json
+
 from ..endpoint import Endpoint, chat_reply
 
 GATEWAY = "http://10.0.0.2:4002"
@@ -39,6 +41,26 @@ class Model:
         reply = chat_reply(response)
         reply["prompt_tokens"] = (response.get("usage") or {}).get("prompt_tokens")
         return reply
+
+    def ask_json(self, prompt, generation):
+        """The first JSON object in the answer, retried once if it is missing
+        or cut off. Returns (object or None, prompt tokens, completion tokens)."""
+        used = [0, 0]
+        for attempt in range(2):
+            reply = self.ask(prompt if attempt == 0 else prompt + "\nAnswer with the JSON object only.", generation)
+            used[0] += reply["prompt_tokens"] or 0
+            used[1] += reply["completion_tokens"] or 0
+            if reply["finish_reason"] == "length":
+                continue
+            text = reply["text"]
+            start, end = text.find("{"), text.rfind("}")
+            try:
+                found = json.loads(text[start : end + 1]) if 0 <= start < end else None
+            except ValueError:
+                found = None
+            if isinstance(found, dict):
+                return found, used[0], used[1]
+        return None, used[0], used[1]
 
     def embed(self, texts):
         """One vector per text, in order."""

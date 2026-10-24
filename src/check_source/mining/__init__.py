@@ -1,7 +1,7 @@
 """Knoll bench task mining from agent sessions (knoll-bench-plan.md section
 6.0). Every stage runs through `blind.run`."""
 
-from . import blind, classify, digest, link, llm, rank
+from . import blind, build, classify, digest, draft, inventory, link, llm, rank
 
 
 def register(subparsers):
@@ -26,6 +26,58 @@ def register(subparsers):
     stage = stages.add_parser("rank", help="stage 4: merge near-duplicate tasks and rank the clusters")
     stage.add_argument("--scope", choices=sorted(digest.SOURCES) + [rank.ALL], default=rank.ALL)
     stage.set_defaults(func=run_rank)
+    stage = stages.add_parser("inventory", help="phase 0: a local model describes each analysis code file")
+    stage.add_argument("--set", dest="set_name", choices=inventory.SETS, required=True)
+    stage.add_argument("--model", choices=sorted(llm.LOCAL_MODELS), default=inventory.MODEL)
+    stage.add_argument("--dry-run", action="store_true", help="count the units without calling a model")
+    stage.add_argument("--concurrency", type=int, default=4)
+    stage.set_defaults(func=run_inventory)
+    stage = stages.add_parser("draft", help="pass 2: a local model drafts one item per unit; static gates run")
+    stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
+    stage.add_argument("--model", choices=sorted(llm.LOCAL_MODELS), default=draft.MODEL)
+    stage.add_argument("--limit", type=int, default=0, help="draft at most this many items (0: all)")
+    stage.add_argument("--concurrency", type=int, default=4)
+    stage.set_defaults(func=run_draft)
+    stage = stages.add_parser("build", help="resolve gold by running reference code in a sandbox; compile items")
+    stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
+    stage.add_argument(
+        "--allow-run", action="store_true", help="run reference code (sandboxed); without it, only plan the runs"
+    )
+    stage.set_defaults(func=run_build)
+
+
+def run_build(args):
+    raise SystemExit(
+        blind.run("build-%s" % args.set_name, build.run_stage, build.VOCAB, set_name=args.set_name, allow_run=args.allow_run)
+    )
+
+
+def run_draft(args):
+    raise SystemExit(
+        blind.run(
+            "draft-%s" % args.set_name,
+            draft.run_stage,
+            draft.VOCAB,
+            set_name=args.set_name,
+            model_name=args.model,
+            limit=args.limit,
+            concurrency=args.concurrency,
+        )
+    )
+
+
+def run_inventory(args):
+    raise SystemExit(
+        blind.run(
+            "inventory-%s" % args.set_name,
+            inventory.run_stage,
+            inventory.VOCAB,
+            set_name=args.set_name,
+            model_name=args.model,
+            dry_run=args.dry_run,
+            concurrency=args.concurrency,
+        )
+    )
 
 
 def run_link(args):
