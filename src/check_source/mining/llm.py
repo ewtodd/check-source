@@ -8,12 +8,15 @@ are deliberately not configurable.
 """
 
 import json
+import time
+import urllib.request
 
 from ..endpoint import Endpoint, chat_reply
 
 GATEWAY = "http://10.0.0.2:4002"
 KEY_FILE = "/run/agenix/maitred-keys"
 KEY_VAR = "MAITRED_KEY_KNOLL"
+WAIT_S = 3600
 LOCAL_MODELS = frozenset(
     {"radiance/qwen3.8-27b", "gufo/qwen3.8-flash-next", "unholy/dsv4-flash", "embed/bge-m3"}
 )
@@ -35,9 +38,34 @@ class Model:
         self.name = name
         self.endpoint = Endpoint(GATEWAY, timeout, retries, api_key=knoll_key())
 
+    def serving(self):
+        try:
+            with urllib.request.urlopen(GATEWAY + "/v1/models", timeout=10) as response:
+                models = json.loads(response.read().decode()).get("data") or []
+        except Exception:  # noqa: BLE001 - a gateway that does not answer is not serving
+            return False
+        return any(model.get("id") == self.name and model.get("status") == "serving" for model in models)
+
+    def wait_until_serving(self, limit_s=WAIT_S):
+        """Poll until the model is served again (son-of-anton switches modes
+        and restarts); False after limit_s."""
+        deadline = time.time() + limit_s
+        while time.time() < deadline:
+            if self.serving():
+                return True
+            time.sleep(60)
+        return False
+
     def ask(self, prompt, generation):
-        """One user turn; returns `chat_reply`'s dict plus `prompt_tokens`."""
-        response = self.endpoint.chat(self.name, prompt, generation)
+        """One user turn; returns `chat_reply`'s dict plus `prompt_tokens`. A
+        503 (model not loaded) waits for the model to come back and retries
+        once instead of failing."""
+        try:
+            response = self.endpoint.chat(self.name, prompt, generation)
+        except RuntimeError as error:
+            if "503" not in str(error) or not self.wait_until_serving():
+                raise
+            response = self.endpoint.chat(self.name, prompt, generation)
         reply = chat_reply(response)
         reply["prompt_tokens"] = (response.get("usage") or {}).get("prompt_tokens")
         return reply

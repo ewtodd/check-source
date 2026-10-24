@@ -133,10 +133,18 @@ def reference_run(private, repo, commit, prefix, shell, workdir, command):
         upper.mkdir(mode=0o700, exist_ok=True)
         work.mkdir(mode=0o700, exist_ok=True)
         mounts += ["--overlay-src", str(target), "--overlay", str(upper), str(work), str(destination)]
+    # The analyses use torch (CUDA) and multiprocessing: give the minimal /dev
+    # a private /dev/shm and the GPU nodes.
+    devices = []
+    for node in sorted(pathlib.Path("/dev").glob("nvidia*")) + [pathlib.Path("/dev/dri")]:
+        if node.exists():
+            devices += ["--dev-bind", str(node), str(node)]
     sandbox = [
         "bwrap",
         "--ro-bind", "/", "/",
         "--dev", "/dev",
+        *devices,
+        "--tmpfs", "/dev/shm",
         "--proc", "/proc",
         "--tmpfs", "/tmp",
         "--bind", str(src), str(src),
@@ -339,6 +347,8 @@ def run_stage(private, set_name, allow_run=False):
                     }
                 )
                 summary["held_for_review"] += 1
+            else:
+                review.append({"id": item["id"], "reason": "unresolved: %s" % failure, "gold": gold})
             continue
         # A gold value the prompt already states is either a leak or a locator
         # that selected the wrong number; either way the item is held back
@@ -346,6 +356,27 @@ def run_stage(private, set_name, allow_run=False):
         if any(leaked(value, item.get("prompt", ""), check) for check in item.get("checks") or []
                for value in [gold.get(check.get("id"))] if value is not None):
             summary["leak_suspected"] += 1
+            review.append({"id": item["id"], "reason": "gold value appears in the prompt", "gold": gold})
+            continue
+        # The draft's own gate problems (the stage writes the pinned commit, so
+        # a miscopied one no longer counts) or the model's needs_human list
+        # send the resolved item to review, never to items.jsonl.
+        item.setdefault("source", {})["commit"] = row["commit"]
+        open_problems = sorted(
+            {code for codes in (row.get("problems") or {}).values() for code in codes if code != "commit_mismatch"}
+        )
+        flagged = list((item.get("generation") or {}).get("needs_human") or [])
+        if open_problems or flagged:
+            review.append(
+                {
+                    "id": item["id"],
+                    "reason": "open gate problems or model flags",
+                    "gate_problems": open_problems,
+                    "model_flags": flagged,
+                    "gold": gold,
+                }
+            )
+            summary["held_for_review"] += 1
             continue
         for check in item.get("checks") or []:
             if check.get("expected") == UNRESOLVED and check["id"] in gold:

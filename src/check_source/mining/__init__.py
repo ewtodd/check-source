@@ -1,7 +1,7 @@
 """Knoll bench task mining from agent sessions (knoll-bench-plan.md section
 6.0). Every stage runs through `blind.run`."""
 
-from . import blind, build, classify, digest, draft, inventory, link, llm, rank, repair
+from . import blind, build, classify, digest, draft, inventory, link, llm, rank, repair, review
 
 
 def register(subparsers):
@@ -50,6 +50,16 @@ def register(subparsers):
     stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
     stage.add_argument("--model", choices=sorted(llm.LOCAL_MODELS), default=repair.MODEL)
     stage.set_defaults(func=run_repair)
+    stage = stages.add_parser("review", help="write a review sheet and a verdicts file for a human reviewer")
+    stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
+    stage.set_defaults(func=lambda args: run_simple("review", review.run_review, review.VOCAB, args))
+    stage = stages.add_parser("approve", help="mark the items the reviewer approved as human_verified")
+    stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
+    stage.set_defaults(func=lambda args: run_simple("approve", review.run_approve, review.VOCAB, args))
+
+
+def run_simple(name, func, vocab, args):
+    raise SystemExit(blind.run("%s-%s" % (name, args.set_name), func, vocab, set_name=args.set_name))
 
 
 def run_repair(args):

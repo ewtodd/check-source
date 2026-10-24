@@ -37,7 +37,10 @@ FALLBACK = dict(GENERATION, reasoning_effort="low")
 TIMEOUT_S = 3 * 3600
 SETS = ["um_ansg", "g0"]
 G0_TOP = 40
+# maitred gives the DeepSeek upstream an hour per request; G0 prompts are kept
+# smaller than UM-ANSG's so a draft finishes inside it.
 CONTEXT_CHARS = 200000
+G0_CONTEXT_CHARS = 120000
 STATES = ["draft", "needs_human", "rejected", "skipped", "failed"]
 VOCAB = frozenset(
     SETS
@@ -155,27 +158,45 @@ Context
 """
 
 
+DATA_FILE = re.compile(r"\.(root|dat|bin|h5|hdf5|csv|tsv|txt|npz|npy|pkl|parquet|json|evt|mid|fits)$", re.IGNORECASE)
+
+
 def data_links(repo, prefix):
-    """(repository-relative path, resolved target) for each symlink under
-    prefix in the working tree whose target is a directory outside the
-    repository: the data directories (root_files -> /labdata/...)."""
+    """(repository-relative path, real directory) for each data root under
+    prefix: symlinks to directories outside the repository (root_files ->
+    /labdata/...), and git-ignored directories of the working tree holding
+    data-like files (data kept in the checkout, caches). `git archive` carries
+    neither, so the sandbox mounts each as an overlay."""
     found = []
     for path in (repo / prefix).rglob("*"):
         if path.is_symlink():
             target = path.resolve()
             if target.is_dir() and not target.is_relative_to(repo):
                 found.append((path.relative_to(repo), target))
+    listed = git(repo, "status", "--ignored", "--porcelain=v1", "--", prefix or ".") or ""
+    for line in listed.splitlines():
+        if not line.startswith("!! ") or not line.endswith("/"):
+            continue
+        directory = repo / line[3:].rstrip("/")
+        if directory.is_symlink() or not directory.is_dir():
+            continue
+        files = (entry for _, entry in zip(range(2000), directory.rglob("*")))
+        if any(entry.is_file() and DATA_FILE.search(entry.name) for entry in files):
+            found.append((directory.relative_to(repo), directory))
     return found
 
 
 def data_dirs_listing(repo, prefix):
     """Every file in the project's data directories, addressed through the
-    repository symlink, with its size."""
+    repository, with its size; directories of earlier results are marked."""
     lines = []
     for relative, target in data_links(repo, prefix):
-        for entry in sorted(target.iterdir())[:80]:
+        earlier = re.search(r"cache|plots?|results?|outputs?|fits", str(relative), re.IGNORECASE)
+        note = "  [earlier results: never an input]" if earlier else ""
+        lines.append("%s/%s" % (relative, note))
+        for entry in sorted(target.rglob("*"))[:80]:
             if entry.is_file():
-                lines.append("%s/%s  (%.1f MB)" % (relative, entry.name, entry.stat().st_size / 1e6))
+                lines.append("  %s  (%.1f MB)" % (entry.relative_to(target.parent), entry.stat().st_size / 1e6))
     return "\n".join(lines) or "-"
 
 
@@ -341,7 +362,7 @@ def g0_jobs(private):
                 "unit": cluster["cluster"],
                 "outputs": outputs,
                 "method": "g2_code_history" if commits else "g1_verified_analysis",
-                "context": "\n".join(sections)[:CONTEXT_CHARS],
+                "context": "\n".join(sections)[:G0_CONTEXT_CHARS],
             }
         )
     return jobs
