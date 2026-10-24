@@ -277,7 +277,22 @@ difficulty = 3                   # initial estimate 1-5, replaced by calibration
 sensitivity = "internal"         # public | internal | restricted
 publishable = true
 
-# <...> fields are filled from the Phase 0 inventory; this example is schematic.
+# Every top-level key, prompt included, must precede the first [table]: TOML
+# assigns a key to the table above it. The solver sees only this prompt and the
+# mounted inputs, so it describes the analysis and never names the reference
+# code. <...> fields are filled from the Phase 0 inventory; this example is
+# schematic.
+prompt = '''
+The mounted file work/decay_time.root holds <the gated decay-time spectrum:
+energy gate, tree and branch names, time binning and time units>.
+
+Fit it with <the decay model, e.g. one exponential plus a constant background>
+over <the fit window> and report, one per line, `key = value` in RESULTS.txt:
+
+- half_life_us: fitted half-life, in microseconds
+- chi2_per_ndf: chi2 divided by the number of degrees of freedom
+'''
+
 [source]
 repo = "UM-ANSG"
 commit = "<pinned>"
@@ -297,18 +312,6 @@ branches = []
 nix_develop = "UM-ANSG#78mBr"
 network = false
 timeout_s = 900
-
-prompt = '''
-The mounted file work/decay_time.root holds <the gated decay-time spectrum that
-HalfLife.cpp fits: energy gate, time binning and time units>.
-
-Fit it with <HalfLife.cpp's decay model, e.g. one exponential plus a constant
-background> over <the fit window> and report, one per line, `key = value` in
-RESULTS.txt:
-
-- half_life_us: fitted half-life, in microseconds
-- chi2_per_ndf: chi2 divided by the number of degrees of freedom
-'''
 
 [output]
 contract = "results_txt"
