@@ -56,7 +56,10 @@ QUESTIONS = {
     "in the pinned dev shell). The step that prints the gold completed; approve if the value and its context look right.",
 }
 STOP = {"ansg", "yap", "78mbr", "the", "and", "for", "from", "with", "keV", "mev", "item", "music", "infra"}
-GS_DEVICE = ["-q", "-dNOPAUSE", "-dBATCH", "-dSAFER", "-sDEVICE=png16m", "-r110", "-dFirstPage=1", "-dLastPage=1"]
+GS = ["-q", "-dNOPAUSE", "-dBATCH", "-dSAFER"]
+PNG = ["-sDEVICE=png16m", "-r110", "-dTextAlphaBits=4", "-dGraphicsAlphaBits=4", "-dFirstPage=1", "-dLastPage=1"]
+BBOX = re.compile(r"%%HiResBoundingBox: ([-\d.]+) ([-\d.]+) ([-\d.]+) ([-\d.]+)")
+PAD_PT = 6
 PAGE_STYLE = """
 body { font: 15px/1.5 system-ui, sans-serif; margin: 0; background: #f5f5f4; color: #1c1917; }
 header { padding: 16px 24px; background: #1c1917; color: #fafaf9; position: sticky; top: 0; z-index: 2; }
@@ -134,6 +137,35 @@ def ghostscript():
     return pathlib.Path(paths[-1]) / "bin" / "gs" if paths else None
 
 
+def to_png(gs, source, target):
+    """Render a PostScript or PDF plot to an upright PNG cropped to what is
+    drawn. ROOT puts a landscape canvas on a portrait PostScript page turned
+    by 90 degrees, and PDF plots sit on a whole A4 page: pdfwrite with
+    AutoRotatePages turns pages so their text reads upright, and the bbox
+    device gives the drawn area to crop to."""
+    rotated = target.with_suffix(".rotated.pdf")
+    subprocess.run(
+        [str(gs), *GS, "-sDEVICE=pdfwrite", "-dAutoRotatePages=/PageByPage", "-sOutputFile=%s" % rotated, str(source)],
+        capture_output=True,
+    )
+    measured = subprocess.run([str(gs), *GS, "-sDEVICE=bbox", str(rotated)], capture_output=True, text=True)
+    box = BBOX.search(measured.stderr)
+    if box:
+        x0, y0, x1, y1 = (float(v) for v in box.groups())
+        crop = [
+            "-dDEVICEWIDTHPOINTS=%d" % (x1 - x0 + 2 * PAD_PT),
+            "-dDEVICEHEIGHTPOINTS=%d" % (y1 - y0 + 2 * PAD_PT),
+            "-dFIXEDMEDIA",
+            "-sOutputFile=%s" % target,
+            "-c", "<</Install {%g %g translate}>> setpagedevice" % (PAD_PT - x0, PAD_PT - y0),
+            "-f", str(rotated),
+        ]  # fmt: skip
+    else:
+        crop = ["-sOutputFile=%s" % target, str(rotated)]
+    subprocess.run([str(gs), *GS, *PNG, *crop], capture_output=True)
+    rotated.unlink(missing_ok=True)
+
+
 def run_plots(run_dir, out_dir, gs):
     """Every plot the run produced, as PNG under out_dir; [(name, png path)]."""
     found = []
@@ -153,8 +185,7 @@ def run_plots(run_dir, out_dir, gs):
                 if kind == "png":
                     shutil.copyfile(path, target)
                 elif gs:
-                    extra = ["-dEPSCrop"] if kind == "ps" else []
-                    subprocess.run([str(gs), *GS_DEVICE, *extra, "-sOutputFile=%s" % target, str(path)], capture_output=True)
+                    to_png(gs, path, target)
             if target.exists():
                 found.append((name, target))
     return found
