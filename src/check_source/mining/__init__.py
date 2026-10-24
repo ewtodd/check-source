@@ -1,6 +1,9 @@
 """Knoll bench task mining from agent sessions (knoll-bench-plan.md section
 6.0). Every stage runs through `blind.run`."""
 
+import os
+import sys
+
 from . import blind, build, classify, digest, draft, inventory, link, llm, rank, repair, review
 
 
@@ -50,12 +53,32 @@ def register(subparsers):
     stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
     stage.add_argument("--model", choices=sorted(llm.LOCAL_MODELS), default=repair.MODEL)
     stage.set_defaults(func=run_repair)
-    stage = stages.add_parser("review", help="write a review sheet and a verdicts file for a human reviewer")
+    stage = stages.add_parser("review", help="render the review page (and with --serve, serve it to record verdicts)")
     stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
-    stage.set_defaults(func=lambda args: run_simple("review", review.run_review, review.VOCAB, args))
+    stage.add_argument("--serve", action="store_true", help="serve the page on 127.0.0.1 with verdict buttons")
+    stage.add_argument("--port", type=int, default=8765)
+    stage.set_defaults(func=run_review)
     stage = stages.add_parser("approve", help="mark the items the reviewer approved as human_verified")
     stage.add_argument("--set", dest="set_name", choices=draft.SETS, required=True)
     stage.set_defaults(func=lambda args: run_simple("approve", review.run_approve, review.VOCAB, args))
+
+
+def run_review(args):
+    if not args.serve:
+        run_simple("review", review.run_review, review.VOCAB, args)
+    status = blind.run("review-%s" % args.set_name, review.run_review, review.VOCAB, set_name=args.set_name)
+    if status:
+        raise SystemExit(status)
+    root = blind.private_dir()
+    log_path = root / "logs" / ("review-serve-%s.log" % args.set_name)
+    print("review page for %s on http://127.0.0.1:%d/ (request log: %s)" % (args.set_name, args.port, log_path.name))
+    sys.stdout.flush()
+    with open(log_path, "a") as log:
+        # The server thread prints tracebacks itself; keep every byte of it,
+        # page content included, out of the terminal.
+        os.dup2(log.fileno(), 1)
+        os.dup2(log.fileno(), 2)
+        review.serve(root, args.set_name, args.port, log)
 
 
 def run_simple(name, func, vocab, args):

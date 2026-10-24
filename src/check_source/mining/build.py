@@ -121,10 +121,17 @@ def reference_run(private, repo, commit, prefix, shell, workdir, command):
     src, home = run_dir / "src", run_dir / "home"
     for directory in (src, home, run_dir / "upper", run_dir / "work"):
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-    archive = subprocess.run(["git", "-C", str(repo), "archive", "--format=tar", commit], capture_output=True)
+    # Only the project the reference belongs to (UM-ANSG projects are self-
+    # contained); the whole tree for repositories that are one project.
+    archive = subprocess.run(
+        ["git", "-C", str(repo), "archive", "--format=tar", commit, *(["--", prefix] if prefix else [])],
+        capture_output=True,
+    )
     subprocess.run(["tar", "-x", "-C", str(src)], input=archive.stdout, capture_output=True, check=True)
+    links = data_links(repo, prefix)
+    (run_dir / "mounts.json").write_text(json.dumps([[str(relative), str(target)] for relative, target in links]))
     mounts = []
-    for number, (relative, target) in enumerate(data_links(repo, prefix)):
+    for number, (relative, target) in enumerate(links):
         destination = src / relative
         if destination.is_symlink() or destination.is_file():
             destination.unlink()
@@ -178,7 +185,38 @@ def reference_run(private, repo, commit, prefix, shell, workdir, command):
         except subprocess.TimeoutExpired:
             status = "timeout"
     status_file.write_text(status)
+    tidy(run_dir, repo, commit, links)
     return status, log
+
+
+ACLIC = re.compile(r"(_cpp|_C|_cxx)\.(so|d)$|_ACLiC_dict_rdict\.pcm$|^AutoDict_")
+
+
+def tidy(run_dir, repo, commit, links):
+    """Keep a finished run's log and what it produced, nothing else.
+
+    Overlay copies of files the data directory already holds are deleted (the
+    data is in /labdata; new outputs stay), as are the overlay work
+    directories (overlayfs leaves them unreadable, hence the chmod), the
+    extracted sources the run did not change (git archive stamps them with the
+    commit time) and ACLiC build products."""
+    for number, (_, target) in enumerate(links):
+        upper = run_dir / "upper" / str(number)
+        for path in sorted(upper.rglob("*"), reverse=True):
+            if path.is_file() and (pathlib.Path(target) / path.relative_to(upper)).exists():
+                path.unlink()
+    work = run_dir / "work"
+    if work.exists():
+        subprocess.run(["chmod", "-R", "u+rwx", str(work)], capture_output=True)
+        shutil.rmtree(work, ignore_errors=True)
+    stamp = int((git(repo, "show", "-s", "--format=%ct", commit) or "0").strip() or 0)
+    for path in (run_dir / "src").rglob("*"):
+        if path.is_file() and (path.stat().st_mtime <= stamp + 60 or ACLIC.search(path.name)):
+            path.unlink()
+    for root in (run_dir / "src", run_dir / "upper"):
+        for path in sorted(root.rglob("*"), reverse=True):
+            if path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
 
 
 JIT_FAILURE = "Failed to materialize symbols"
