@@ -231,14 +231,17 @@ def data_listing(repo, unit_dir, paths):
 
 
 UTILS = pathlib.Path("~/Analysis-Utilities").expanduser()
+# File stems, matched against #include names, not class names: since
+# Analysis-Utilities 26.10.24 WaveformProcessingUtils holds the waveform
+# processor variants (PulseIntegralProcessor, PulseHeightProcessor).
 UTILS_SOURCES = {"FittingUtils", "WaveformProcessingUtils"}
 INCLUDE = re.compile(r'#include\s*"([^"]+)"')
 
 
 def utils_dependencies(repo, commit, code):
     """Analysis-Utilities headers the code includes, at the revision the
-    repository's flake.lock pins; sources too for the fitting and waveform
-    code, where analysis conventions live. [(label, text)]."""
+    repository's flake.lock pins; sources too for the fitting code and the
+    waveform processors, where analysis conventions live. [(label, text)]."""
     try:
         lock = json.loads(git(repo, "show", "%s:flake.lock" % commit) or "{}")
     except ValueError:
