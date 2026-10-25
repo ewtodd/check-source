@@ -109,14 +109,22 @@ def resolve(origin, repo, repos):
     return re.sub(r"\$\{([A-Za-z0-9_-]+)\}", lambda match: repos[match.group(1)], origin)
 
 
-def execute(item, language, source, repos, timeout):
+def flake_ref(base, commit, shell):
+    """`github:owner/repo` takes the revision as a path segment; anything else
+    (git+file://, git+https://) as ?rev=."""
+    if base.startswith(("github:", "gitlab:", "sourcehut:")):
+        return "%s/%s#%s" % (base.rstrip("/"), commit, shell)
+    return "%s?rev=%s#%s" % (base, commit, shell)
+
+
+def execute(item, language, source, repos, flakes, timeout):
     """Run the program in the sandbox; (exit status or "timeout", RESULTS.txt
     text or None, combined output tail)."""
     source_info = item.get("source") or {}
     repo_name = source_info.get("repo", "")
     repo = repos.get(repo_name)
     shell = str((item.get("env") or {}).get("nix_develop", "")).rpartition("#")[2] or "default"
-    flake = "git+file://%s?rev=%s#%s" % (repo, source_info.get("commit"), shell)
+    flake = flake_ref(flakes.get(repo_name, "git+file://%s" % repo), source_info.get("commit"), shell)
     with tempfile.TemporaryDirectory(prefix="knoll-") as scratch:
         workdir = pathlib.Path(scratch)
         (workdir / "work").mkdir()
@@ -183,6 +191,7 @@ def main(args):
         raise SystemExit("the knoll bench runs model programs in bubblewrap (bwrap); it is not on PATH")
     repos = dict(pair.split("=", 1) for pair in args.repo)
     repos = {name: os.path.expanduser(path) for name, path in repos.items()}
+    flakes = dict(pair.split("=", 1) for pair in args.flake)
     items = load_items(args.items, args.allow_draft)
     if not items:
         raise SystemExit("no runnable items in %s (only human_verified items run unless --allow-draft)" % args.items)
@@ -218,7 +227,7 @@ def main(args):
         status, results_text, output = (None, None, "")
         if program:
             timeout = int((item.get("env") or {}).get("timeout_s") or EXECUTION_TIMEOUT_S)
-            status, results_text, output = execute(item, program[0], program[1], repos, timeout)
+            status, results_text, output = execute(item, program[0], program[1], repos, flakes, timeout)
         results = parse_results(results_text)
         required = [check for check in item.get("checks") or [] if check.get("required", True)]
         checks = []
@@ -295,7 +304,16 @@ def register(subparsers):
         action="append",
         default=["UM-ANSG=~/UM-ANSG"],
         metavar="NAME=PATH",
-        help="local checkout for an item's source.repo (repeatable); its inputs and dev shell come from there",
+        help="where an item's ${REPO} input paths resolve for its source.repo (repeatable): a checkout, or "
+        "a directory holding just the input files at their repository paths",
+    )
+    parser.add_argument(
+        "--flake",
+        action="append",
+        default=[],
+        metavar="NAME=URL",
+        help="flake for a repo's dev shells, e.g. UM-ANSG=github:ewtodd/UM-ANSG (repeatable); "
+        "default git+file:// on the --repo path",
     )
     parser.add_argument("--allow-draft", action="store_true", help="also run items not yet human_verified")
     parser.add_argument("--api-key-env", default=None, help="environment variable holding the endpoint's API key")
